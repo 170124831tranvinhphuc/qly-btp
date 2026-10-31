@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Firebase SDK -->
+    <!-- Firebase SDK (Compat) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <style>
@@ -42,9 +42,9 @@
                     Đăng Nhập Hệ Thống
                 </button>
             </form>
-
-            
-                
+            <div class="mt-4 text-center">
+                <button onclick="resetPasswordsDefault()" class="text-xs text-slate-400 hover:text-indigo-600 underline">Khôi phục đăng nhập mặc định</button>
+            </div>
         </div>
     </div>
 
@@ -58,7 +58,7 @@
                     <div>
                         <h1 class="font-bold text-lg leading-tight">QUẢN LÝ TIẾN ĐỘ GIAO BTP</h1>
                         <p class="text-xs text-indigo-200 flex items-center gap-1">
-                            <span id="connection-status" class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+                            <span id="connection-status" class="inline-block w-2 h-2 rounded-full bg-amber-400"></span>
                             <span id="connection-text">Chế độ Local (Offline)</span>
                         </p>
                     </div>
@@ -245,16 +245,16 @@
                 <button onclick="closeConfigModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
             </div>
             <div class="p-6 space-y-4">
-                <p class="text-xs text-slate-600 leading-relaxed">Dán đoạn cấu hình Firebase để đồng bộ thời gian thực giữa các máy.</p>
+                <p class="text-xs text-slate-600 leading-relaxed">Dán đoạn cấu hình Firebase (dạng JSON hoặc Database URL) để đồng bộ thời gian thực giữa các máy.</p>
                 <div>
-                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Database URL</label>
-                    <input type="text" id="cfg-db-url" placeholder="https://your-project.firebaseio.com" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:outline-none">
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Database URL / Firebase Config JSON</label>
+                    <textarea id="cfg-db-url" rows="4" placeholder="VD: https://your-project-default-rtdb.firebaseio.com" class="w-full border border-slate-300 rounded-lg p-2 text-xs focus:outline-none font-mono"></textarea>
                 </div>
                 <div class="flex justify-between items-center pt-3 border-t border-slate-200">
                     <button type="button" onclick="resetToLocal()" class="text-xs text-amber-600 hover:underline font-semibold">Dùng Offline (LocalStorage)</button>
                     <div class="flex gap-2">
                         <button onclick="closeConfigModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-sm text-slate-600">Đóng</button>
-                        <button onclick="saveFirebaseConfig()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">Lưu</button>
+                        <button onclick="saveFirebaseConfig()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">Lưu & Kết Nối</button>
                     </div>
                 </div>
             </div>
@@ -281,13 +281,12 @@
             }
         ];
 
-        // LOGIC ĐĂNG NHẬP CHUẨN XÁC
+        // LOGIC ĐĂNG NHẬP
         function handleLogin(e) {
             e.preventDefault();
             const user = document.getElementById('login-user').value.trim().toLowerCase();
             const pass = document.getElementById('login-pass').value.trim();
 
-            // Kiểm tra mật khẩu trực tiếp
             let isValid = false;
             let roleInfo = { username: user, role: '', name: '', chuyen: null };
 
@@ -319,7 +318,7 @@
 
         function resetPasswordsDefault() {
             sessionStorage.clear();
-            alert('Đã khôi phục thông tin mật khẩu về mặc định!\nBạn có thể đăng nhập ngay.');
+            alert('Đã khôi phục thông tin đăng nhập mặc định!\nAdmin: admin / admin\nKho Cắt: khocat / khocat123\nChuyền: chuyen3 / chuyen');
             location.reload();
         }
 
@@ -361,24 +360,37 @@
             initFirebaseOrLocal();
         }
 
+        // FIREBASE / LOCAL STORAGE INITIALIZATION
         function initFirebaseOrLocal() {
             const savedCfg = localStorage.getItem('btp_firebase_cfg');
             if (savedCfg) {
                 try {
-                    const cfg = JSON.parse(savedCfg);
-                    if (!firebase.apps.length) firebase.initializeApp(cfg);
-                    dbRef = firebase.database().ref('btp_orders');
-                    dbRef.on('value', (snapshot) => {
-                        const val = snapshot.val();
-                        ordersData = val ? Object.values(val) : [];
-                        renderOrders();
-                        updateDashboardStats();
-                    });
-                    isFirebaseActive = true;
-                    document.getElementById('connection-status').className = "inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse-fast";
-                    document.getElementById('connection-text').innerText = "Online (Real-time Firebase)";
-                    return;
-                } catch (e) { console.error(e); }
+                    let cfg = savedCfg.trim();
+                    let firebaseAppConfig;
+
+                    if (cfg.startsWith('{')) {
+                        firebaseAppConfig = JSON.parse(cfg);
+                    } else if (cfg.startsWith('http')) {
+                        firebaseAppConfig = { databaseURL: cfg };
+                    }
+
+                    if (firebaseAppConfig) {
+                        if (!firebase.apps.length) {
+                            firebase.initializeApp(firebaseAppConfig);
+                        }
+                        dbRef = firebase.database().ref('btp_orders');
+                        dbRef.on('value', (snapshot) => {
+                            const val = snapshot.val();
+                            ordersData = val ? (Array.isArray(val) ? val : Object.values(val)) : [];
+                            renderOrders();
+                            updateDashboardStats();
+                        });
+                        isFirebaseActive = true;
+                        document.getElementById('connection-status').className = "inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse-fast";
+                        document.getElementById('connection-text').innerText = "Online (Real-time Firebase)";
+                        return;
+                    }
+                } catch (e) { console.error("Firebase config error:", e); }
             }
 
             isFirebaseActive = false;
@@ -404,6 +416,28 @@
             }
         }
 
+        // DASHBOARD STATS
+        function updateDashboardStats() {
+            const totalOrders = ordersData.length;
+            let totalTarget = 0;
+            let totalDelivered = 0;
+
+            ordersData.forEach(ord => {
+                ord.items.forEach(item => {
+                    totalTarget += item.qtyTarget || 0;
+                    totalDelivered += item.qtyAccepted || 0;
+                });
+            });
+
+            const percent = totalTarget > 0 ? Math.round((totalDelivered / totalTarget) * 100) : 0;
+
+            document.getElementById('stat-total-orders').innerText = totalOrders;
+            document.getElementById('stat-total-target').innerText = totalTarget.toLocaleString('vi-VN');
+            document.getElementById('stat-total-delivered').innerText = totalDelivered.toLocaleString('vi-VN');
+            document.getElementById('stat-progress-percent').innerText = `${percent}%`;
+        }
+
+        // RENDER ORDERS
         function renderOrders() {
             const container = document.getElementById('orders-container');
             const search = document.getElementById('search-input').value.toLowerCase();
@@ -501,11 +535,11 @@
                                                         </button>
                                                     ` : ''}
                                                     ${isTargetChuyen && item.qtyPending > 0 ? `
-                                                        <button onclick="acceptDelivery('${ord.id}', '${item.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2.5 py-1 rounded text-[11px] shadow-sm flex items-center gap-1 animate-bounce">
+                                                        <button onclick="acceptDelivery('${ord.id}', '${item.id}')" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-2.5 py-1 rounded text-[11px] shadow-sm flex items-center gap-1 animate-pulse-fast">
                                                             <i class="fa-solid fa-check"></i> Xác Nhận Nhận
                                                         </button>
                                                     ` : ''}
-                                                    ${isItemDone ? `<span class="text-emerald-600 text-xs font-bold"><i class="fa-solid fa-circle-check"></i> Đủ</span>` : ''}
+                                                    ${isItemDone ? `<span class="text-emerald-600 font-bold text-[11px]"><i class="fa-solid fa-check-double mr-1"></i>Đủ</span>` : ''}
                                                 </div>
                                             </td>
                                         </tr>
@@ -519,46 +553,88 @@
             });
         }
 
-        function updateDashboardStats() {
-            document.getElementById('stat-total-orders').innerText = ordersData.length;
-            let totalTarget = 0, totalAccepted = 0;
-            ordersData.forEach(o => o.items.forEach(i => { totalTarget += i.qtyTarget || 0; totalAccepted += i.qtyAccepted || 0; }));
-            document.getElementById('stat-total-target').innerText = totalTarget.toLocaleString();
-            document.getElementById('stat-total-delivered').innerText = totalAccepted.toLocaleString();
-            const p = totalTarget > 0 ? Math.round((totalAccepted / totalTarget) * 100) : 0;
-            document.getElementById('stat-progress-percent').innerText = p + '%';
+        // DELIVER BTP ACTIONS
+        function openDeliverModal(orderId, itemId) {
+            const ord = ordersData.find(o => o.id === orderId);
+            if (!ord) return;
+            const item = ord.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            document.getElementById('deliver-order-id').value = orderId;
+            document.getElementById('deliver-detail-id').value = itemId;
+            document.getElementById('deliver-item-info').innerText = `${ord.maHang} - ${item.name} (${item.color} / Size ${item.size})`;
+            document.getElementById('deliver-target-qty').innerText = item.qtyTarget;
+            document.getElementById('deliver-accepted-qty').innerText = item.qtyAccepted;
+            
+            const remaining = item.qtyTarget - item.qtyAccepted - item.qtyPending;
+            document.getElementById('deliver-qty-input').value = remaining > 0 ? remaining : 0;
+            document.getElementById('deliver-qty-input').max = remaining > 0 ? remaining : 0;
+
+            document.getElementById('modal-deliver').classList.remove('hidden');
         }
 
+        function closeDeliverModal() {
+            document.getElementById('modal-deliver').classList.add('hidden');
+        }
+
+        function handleDeliverSubmit(e) {
+            e.preventDefault();
+            const orderId = document.getElementById('deliver-order-id').value;
+            const itemId = document.getElementById('deliver-detail-id').value;
+            const qty = parseInt(document.getElementById('deliver-qty-input').value) || 0;
+
+            const ord = ordersData.find(o => o.id === orderId);
+            if (!ord) return;
+            const item = ord.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            item.qtyPending += qty;
+            saveData();
+            closeDeliverModal();
+        }
+
+        function acceptDelivery(orderId, itemId) {
+            const ord = ordersData.find(o => o.id === orderId);
+            if (!ord) return;
+            const item = ord.items.find(i => i.id === itemId);
+            if (!item) return;
+
+            item.qtyAccepted += item.qtyPending;
+            item.qtyPending = 0;
+            saveData();
+        }
+
+        function deleteOrder(orderId) {
+            if (confirm('Bạn có chắc chắn muốn xóa đơn BTP này không?')) {
+                ordersData = ordersData.filter(o => o.id !== orderId);
+                saveData();
+            }
+        }
+
+        // CREATE ORDER MODAL LOGIC
         function openCreateModal() {
             document.getElementById('modal-details-rows').innerHTML = '';
-            addDetailRow('Thân Trước', 'Xanh Navy', 'L', 'Bàn 01', 500);
-            addDetailRow('Thân Sau', 'Xanh Navy', 'L', 'Bàn 01', 500);
+            addDetailRow();
             document.getElementById('modal-create').classList.remove('hidden');
         }
 
-        function closeCreateModal() { document.getElementById('modal-create').classList.add('hidden'); }
+        function closeCreateModal() {
+            document.getElementById('modal-create').classList.add('hidden');
+        }
 
-        function addDetailRow(name = '', color = '', size = 'M', ban = '', qty = 100) {
+        function addDetailRow() {
             const container = document.getElementById('modal-details-rows');
             const rowId = 'row-' + Date.now() + Math.random().toString(36).substr(2, 4);
             const div = document.createElement('div');
             div.id = rowId;
-            div.className = "grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded border border-slate-200 text-xs";
+            div.className = "grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg border border-slate-200 text-xs";
             div.innerHTML = `
-                <div class="col-span-3"><input type="text" placeholder="Tên BTP" value="${name}" required class="row-name w-full p-1.5 border border-slate-300 rounded focus:outline-none"></div>
-                <div class="col-span-2"><input type="text" placeholder="Màu" value="${color}" required class="row-color w-full p-1.5 border border-slate-300 rounded focus:outline-none"></div>
-                <div class="col-span-2">
-                    <select class="row-size w-full p-1.5 border border-slate-300 rounded focus:outline-none">
-                        <option value="S" ${size === 'S' ? 'selected' : ''}>S</option>
-                        <option value="M" ${size === 'M' ? 'selected' : ''}>M</option>
-                        <option value="L" ${size === 'L' ? 'selected' : ''}>L</option>
-                        <option value="XL" ${size === 'XL' ? 'selected' : ''}>XL</option>
-                        <option value="XXL" ${size === 'XXL' ? 'selected' : ''}>XXL</option>
-                    </select>
-                </div>
-                <div class="col-span-2"><input type="text" placeholder="Bàn cắt" value="${ban}" class="row-ban w-full p-1.5 border border-slate-300 rounded focus:outline-none"></div>
-                <div class="col-span-2"><input type="number" min="1" value="${qty}" required class="row-qty w-full p-1.5 border border-slate-300 rounded font-bold focus:outline-none"></div>
-                <div class="col-span-1 text-center"><button type="button" onclick="document.getElementById('${rowId}').remove()" class="text-rose-500"><i class="fa-solid fa-xmark"></i></button></div>
+                <input type="text" placeholder="Tên BTP (VD: Thân Trước)" required class="col-span-3 border p-1.5 rounded focus:outline-none detail-name">
+                <input type="text" placeholder="Màu sắc" required class="col-span-2 border p-1.5 rounded focus:outline-none detail-color">
+                <input type="text" placeholder="Size" required class="col-span-2 border p-1.5 rounded focus:outline-none detail-size">
+                <input type="text" placeholder="Bàn cắt" class="col-span-2 border p-1.5 rounded focus:outline-none detail-bancut">
+                <input type="number" placeholder="Kế hoạch" required min="1" class="col-span-2 border p-1.5 rounded focus:outline-none detail-qty font-bold">
+                <button type="button" onclick="document.getElementById('${rowId}').remove()" class="col-span-1 text-rose-500 hover:text-rose-700 text-center"><i class="fa-solid fa-trash"></i></button>
             `;
             container.appendChild(div);
         }
@@ -567,75 +643,70 @@
             e.preventDefault();
             const maHang = document.getElementById('new-ma-hang').value.trim();
             const chuyenMay = document.getElementById('new-chuyen-may').value;
-            const rowElements = document.querySelectorAll('#modal-details-rows > div');
-            if (rowElements.length === 0) { alert('Thêm ít nhất 1 dòng BTP!'); return; }
+            const rows = document.querySelectorAll('#modal-details-rows > div');
 
             const items = [];
-            rowElements.forEach((el, idx) => {
-                items.push({
-                    id: 'ITEM-' + Date.now() + '-' + idx,
-                    name: el.querySelector('.row-name').value.trim(),
-                    color: el.querySelector('.row-color').value.trim(),
-                    size: el.querySelector('.row-size').value,
-                    banCut: el.querySelector('.row-ban').value.trim(),
-                    qtyTarget: parseInt(el.querySelector('.row-qty').value) || 0,
-                    qtyPending: 0,
-                    qtyAccepted: 0
-                });
+            rows.forEach((row, index) => {
+                const name = row.querySelector('.detail-name').value.trim();
+                const color = row.querySelector('.detail-color').value.trim();
+                const size = row.querySelector('.detail-size').value.trim();
+                const banCut = row.querySelector('.detail-bancut').value.trim();
+                const qtyTarget = parseInt(row.querySelector('.detail-qty').value) || 0;
+
+                if (name && qtyTarget > 0) {
+                    items.push({
+                        id: `ITEM-${Date.now()}-${index}`,
+                        name, color, size, banCut,
+                        qtyTarget,
+                        qtyPending: 0,
+                        qtyAccepted: 0
+                    });
+                }
             });
 
-            ordersData.unshift({ id: 'ORD-' + Date.now(), maHang, chuyenMay, createdAt: new Date().toISOString(), items });
+            if (items.length === 0) {
+                alert('Vui lòng thêm ít nhất 1 chi tiết BTP!');
+                return;
+            }
+
+            const newOrder = {
+                id: `ORD-${Date.now()}`,
+                maHang,
+                chuyenMay,
+                createdAt: new Date().toISOString(),
+                items
+            };
+
+            ordersData.unshift(newOrder);
             saveData();
             closeCreateModal();
         }
 
-        function deleteOrder(orderId) {
-            if (confirm('Xóa đơn BTP này?')) { ordersData = ordersData.filter(o => o.id !== orderId); saveData(); }
+        // FIREBASE CONFIG MODAL LOGIC
+        function openConfigModal() {
+            const savedCfg = localStorage.getItem('btp_firebase_cfg') || '';
+            document.getElementById('cfg-db-url').value = savedCfg;
+            document.getElementById('modal-config').classList.remove('hidden');
         }
 
-        function openDeliverModal(orderId, itemId) {
-            const ord = ordersData.find(o => o.id === orderId);
-            const item = ord.items.find(i => i.id === itemId);
-            document.getElementById('deliver-order-id').value = orderId;
-            document.getElementById('deliver-detail-id').value = itemId;
-            document.getElementById('deliver-item-info').innerText = `${ord.maHang} - ${item.name} (${item.color} | ${item.size})`;
-            document.getElementById('deliver-target-qty').innerText = item.qtyTarget;
-            document.getElementById('deliver-accepted-qty').innerText = item.qtyAccepted;
-            document.getElementById('deliver-qty-input').value = Math.max(1, item.qtyTarget - item.qtyAccepted - item.qtyPending);
-            document.getElementById('modal-deliver').classList.remove('hidden');
+        function closeConfigModal() {
+            document.getElementById('modal-config').classList.add('hidden');
         }
 
-        function closeDeliverModal() { document.getElementById('modal-deliver').classList.add('hidden'); }
-
-        function handleDeliverSubmit(e) {
-            e.preventDefault();
-            const orderId = document.getElementById('deliver-order-id').value;
-            const itemId = document.getElementById('deliver-detail-id').value;
-            const qty = parseInt(document.getElementById('deliver-qty-input').value) || 0;
-            const ord = ordersData.find(o => o.id === orderId);
-            const item = ord.items.find(i => i.id === itemId);
-            if (item) { item.qtyPending += qty; saveData(); }
-            closeDeliverModal();
-        }
-
-        function acceptDelivery(orderId, itemId) {
-            const ord = ordersData.find(o => o.id === orderId);
-            const item = ord.items.find(i => i.id === itemId);
-            if (item && item.qtyPending > 0) { item.qtyAccepted += item.qtyPending; item.qtyPending = 0; saveData(); }
-        }
-
-        function openConfigModal() { document.getElementById('modal-config').classList.remove('hidden'); }
-        function closeConfigModal() { document.getElementById('modal-config').classList.add('hidden'); }
         function saveFirebaseConfig() {
-            const url = document.getElementById('cfg-db-url').value.trim();
-            if (!url) { alert('Nhập Database URL!'); return; }
-            localStorage.setItem('btp_firebase_cfg', JSON.stringify({ databaseURL: url }));
-            alert('Đã lưu! Trang web sẽ tải lại.');
-            location.reload();
+            const val = document.getElementById('cfg-db-url').value.trim();
+            if (val) {
+                localStorage.setItem('btp_firebase_cfg', val);
+                alert('Đã lưu cấu hình Firebase! Trang web sẽ làm mới lại.');
+                location.reload();
+            } else {
+                resetToLocal();
+            }
         }
+
         function resetToLocal() {
             localStorage.removeItem('btp_firebase_cfg');
-            alert('Chuyển về Offline!');
+            alert('Đã chuyển về chế độ Local Storage Offline!');
             location.reload();
         }
     </script>
